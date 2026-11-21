@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { Abi, AbiEvent, ExtractAbiEventNames } from "abitype";
 import { BlockNumber, GetLogsParameters } from "viem";
@@ -14,6 +14,9 @@ import {
   UseScaffoldEventHistoryData,
 } from "~~/utils/scaffold-eth/contract";
 
+// Monad Testnet RPC accepts at most 101 blocks per log query; keep a one-block margin.
+const EVENT_LOG_BLOCK_RANGE = 100n;
+
 const getEvents = async (
   getLogsParams: GetLogsParameters<AbiEvent | undefined, AbiEvent[] | undefined, boolean, BlockNumber, BlockNumber>,
   publicClient?: UsePublicClientReturnType<Config, number>,
@@ -26,6 +29,7 @@ const getEvents = async (
   const logs = await publicClient?.getLogs({
     address: getLogsParams.address,
     fromBlock: getLogsParams.fromBlock,
+    toBlock: getLogsParams.toBlock,
     args: getLogsParams.args,
     event: getLogsParams.event,
   });
@@ -89,8 +93,6 @@ export const useScaffoldEventHistory = <
   const publicClient = usePublicClient({
     chainId: selectedNetwork.id,
   });
-  const [isFirstRender, setIsFirstRender] = useState(true);
-
   const { data: blockNumber } = useBlockNumber({ watch: watch, chainId: selectedNetwork.id });
 
   const { data: deployedContractData } = useDeployedContractInfo({
@@ -103,6 +105,7 @@ export const useScaffoldEventHistory = <
     ((deployedContractData.abi as Abi).find(part => part.type === "event" && part.name === eventName) as AbiEvent);
 
   const isContractAddressAndClientReady = Boolean(deployedContractData?.address) && Boolean(publicClient);
+  const isQueryReady = enabled && isContractAddressAndClientReady && blockNumber !== undefined;
 
   const query = useInfiniteQuery({
     queryKey: [
@@ -112,37 +115,31 @@ export const useScaffoldEventHistory = <
         address: deployedContractData?.address,
         eventName,
         fromBlock: fromBlock.toString(),
+        blockRange: EVENT_LOG_BLOCK_RANGE.toString(),
         chainId: selectedNetwork.id,
         filters: JSON.stringify(filters, replacer),
       },
     ],
     queryFn: async ({ pageParam }) => {
-      if (!isContractAddressAndClientReady) return undefined;
-      const data = await getEvents(
-        { address: deployedContractData?.address, event, fromBlock: pageParam, args: filters },
+      if (!isQueryReady || blockNumber === undefined) return { events: [], toBlock: pageParam - 1n };
+      const lastBlockInRange = pageParam + EVENT_LOG_BLOCK_RANGE - 1n;
+      const toBlock = lastBlockInRange < blockNumber ? lastBlockInRange : blockNumber;
+      const events = await getEvents(
+        { address: deployedContractData?.address, event, fromBlock: pageParam, toBlock, args: filters },
         publicClient,
         { blockData, transactionData, receiptData },
       );
 
-      return data;
+      return { events: events ?? [], toBlock };
     },
-    enabled: enabled && isContractAddressAndClientReady,
+    enabled: isQueryReady,
     initialPageParam: fromBlock,
-    getNextPageParam: (lastPage, allPages, lastPageParam) => {
-      if (!blockNumber || fromBlock >= blockNumber) return undefined;
-
-      const lastPageHighestBlock = Math.max(
-        Number(fromBlock),
-        ...(lastPage || []).map(event => Number(event.blockNumber || 0)),
-      );
-      const nextBlock = BigInt(Math.max(Number(lastPageParam), lastPageHighestBlock) + 1);
-
-      if (nextBlock > blockNumber) return undefined;
-
-      return nextBlock;
+    getNextPageParam: lastPage => {
+      if (!blockNumber || lastPage.toBlock >= blockNumber) return undefined;
+      return lastPage.toBlock + 1n;
     },
     select: data => {
-      const events = data.pages.flat() as unknown as UseScaffoldEventHistoryData<
+      const events = data.pages.flatMap(page => page?.events ?? []) as unknown as UseScaffoldEventHistoryData<
         TContractName,
         TEventName,
         TBlockData,
@@ -158,23 +155,15 @@ export const useScaffoldEventHistory = <
   });
 
   useEffect(() => {
-    const shouldSkipEffect = !blockNumber || !watch || isFirstRender;
-    if (shouldSkipEffect) {
-      // skipping on first render, since on first render we should call queryFn with
-      // fromBlock value, not blockNumber
-      if (isFirstRender) setIsFirstRender(false);
-      return;
-    }
-
+    if (!isQueryReady || query.isError || !query.hasNextPage || query.isFetchingNextPage) return;
     query.fetchNextPage();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [blockNumber, watch]);
+  }, [isQueryReady, query.isError, query.hasNextPage, query.isFetchingNextPage, query.fetchNextPage]);
 
   return {
     data: query.data?.pages,
     status: query.status,
     error: query.error,
-    isLoading: query.isLoading,
+    isLoading: query.isLoading || Boolean(query.hasNextPage && !query.isError),
     isFetchingNewEvent: query.isFetchingNextPage,
     refetch: query.refetch,
   };
