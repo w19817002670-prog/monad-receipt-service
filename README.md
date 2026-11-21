@@ -1,80 +1,71 @@
-# 🏗 Scaffold-ETH 2 Foundry Edition + Monad Testnet Configuration
+# MON 按次付费链上回执服务
 
-<h4 align="center">
-  <a href="https://docs.scaffoldeth.io">Documentation</a> |
-  <a href="https://scaffoldeth.io">Website</a>
-</h4>
+基于 [scaffold-monad-foundry](https://github.com/monad-developers/scaffold-monad-foundry) 和 [Scaffold-ETH 2](https://scaffoldeth.io) 构建的 Monad Testnet 示例应用。脚手架及其中通用组件归原项目及其贡献者所有，并非本项目原创；本说明仅补充本项目的合约服务、演示与运行方式。
 
-🧪 An open-source, up-to-date toolkit for building decentralized applications (dapps) on the Ethereum blockchain. It's designed to make it easier for developers to create and deploy smart contracts and build user interfaces that interact with those contracts.
+## 项目概述
 
-⚙️ Built using NextJS, RainbowKit, Foundry, Wagmi, Viem, and Typescript.
+用户支付固定数量的 MON 调用链上服务，合约保存回执并发出 `ReceiptIssued` 事件，前端展示本次交易状态和历史回执。
 
-- ✅ **Contract Hot Reload**: Your frontend auto-adapts to your smart contract as you edit it.
-- 🪝 **[Custom hooks](https://docs.scaffoldeth.io/hooks/)**: Collection of React hooks wrapper around [wagmi](https://wagmi.sh/) to simplify interactions with smart contracts with typescript autocompletion.
-- 🧱 [**Components**](https://docs.scaffoldeth.io/components/): Collection of common web3 components to quickly build your frontend.
-- 🔥 **Burner Wallet & Local Faucet**: Quickly test your application with a burner wallet and local faucet.
-- 🔐 **Integration with Wallet Providers**: Connect to different wallet providers and interact with the Ethereum network.
+核心功能：
 
-![Debug Contracts tab](https://github.com/scaffold-eth/scaffold-eth-2/assets/55535804/b237af0c-5027-4849-a5c1-2e31495cccb1)
+- 每次支付 `0.1 MON` 调用 `callService`，输入为 1–256 字节的 UTF-8 文本。
+- 链上保存 `callId`、调用者、输入哈希、区块高度和时间戳。
+- 支付确认后直接解析本次交易回执中的 `ReceiptIssued`。
+- 保留历史回执查询、交易失败提示、防连点、竞态与切网保护。
+- 支付金额不足时由合约拒绝，不生成成功回执。
 
-## Requirements
+## 技术栈
 
-Before you begin, you need to install the following tools:
+- Next.js 15.5.28、React 19、TypeScript
+- RainbowKit、Wagmi、Viem
+- Foundry、Solidity
+- Yarn 3.2.3（通过 Corepack 使用）
 
-- [Node (>= v20.18.3)](https://nodejs.org/en/download/)
-- Yarn ([v1](https://classic.yarnpkg.com/en/docs/install/) or [v2+](https://yarnpkg.com/getting-started/install))
-- [Git](https://git-scm.com/downloads)
+## 环境要求
 
-## Quickstart
+- [Node.js](https://nodejs.org/) >= 20.18.3
+- [Foundry](https://book.getfoundry.sh/getting-started/installation)，需提供 `forge`
+- Git 与 Corepack
 
-To get started with Scaffold-ETH 2, follow the steps below:
+## 安装与运行
 
-1. Install dependencies if it was skipped in CLI:
+在仓库根目录安装依赖：
 
-```
-cd my-dapp-example
-yarn install
-```
-
-2. Run a local network in the first terminal:
-
-```
-yarn chain
+```bash
+corepack yarn install
 ```
 
-This command starts a local Ethereum network using Foundry. The network runs on your local machine and can be used for testing and development. You can customize the network configuration in `packages/foundry/foundry.toml`.
+启动前端开发服务器：
 
-3. On a second terminal, deploy the test contract:
-
-```
-yarn deploy
+```bash
+cd packages/nextjs && corepack yarn dev
 ```
 
-This command deploys a test smart contract to the local network. The contract is located in `packages/foundry/contracts` and can be modified to suit your needs. The `yarn deploy` command uses the deploy script located in `packages/foundry/script` to deploy the contract to the network. You can also customize the deploy script.
+运行合约测试：
 
-4. On a third terminal, start your NextJS app:
-
-```
-yarn start
+```bash
+cd packages/foundry && forge test
 ```
 
-Visit your app on: `http://localhost:3000`. You can interact with your smart contract using the `Debug Contracts` page. You can tweak the app config in `packages/nextjs/scaffold.config.ts`.
+## Monad Testnet 与合约
 
-Run smart contract test with `yarn foundry:test`
+- 网络：Monad Testnet
+- Chain ID：`10143`
+- `MonReceiptService` 合约：`0xE9F0426A69B0F5c3F7cAFF7E784d04277419C441`
+- 部署区块：`81521306`
 
-- Edit your smart contracts in `packages/foundry/contracts`
-- Edit your frontend homepage at `packages/nextjs/app/page.tsx`. For guidance on [routing](https://nextjs.org/docs/app/building-your-application/routing/defining-routes) and configuring [pages/layouts](https://nextjs.org/docs/app/building-your-application/routing/pages-and-layouts) checkout the Next.js documentation.
-- Edit your deployment scripts in `packages/foundry/script`
+## 演示流程
 
+1. 输入有效文本并支付 `0.1 MON`，交易成功后生成 `callId = 1` 的回执。
+2. 再次正常支付 `0.1 MON`，生成 `callId = 2` 的回执。
+3. 使用“演示少付”按钮尝试支付 `0.05 MON`，合约以 `IncorrectPayment` 拒绝调用；该次操作不得显示为支付成功，也不会生成正常回执。
 
-## Documentation
+## 原脚手架说明
 
-Visit our [docs](https://docs.scaffoldeth.io) to learn how to start building with Scaffold-ETH 2.
+Scaffold-ETH 2 是用于构建以太坊去中心化应用的开源工具包，提供合约热更新、Wagmi/Viem 自定义 hooks、常用 Web3 组件、钱包集成及本地开发能力。其文档与贡献指南仍适用于脚手架通用部分：
 
-To know more about its features, check out our [website](https://scaffoldeth.io).
+- [Scaffold-ETH 文档](https://docs.scaffoldeth.io)
+- [Scaffold-ETH 网站](https://scaffoldeth.io)
+- [Scaffold-ETH 贡献指南](https://github.com/scaffold-eth/scaffold-eth-2/blob/main/CONTRIBUTING.md)
 
-## Contributing to Scaffold-ETH 2
-
-We welcome contributions to Scaffold-ETH 2!
-
-Please see [CONTRIBUTING.MD](https://github.com/scaffold-eth/scaffold-eth-2/blob/main/CONTRIBUTING.md) for more information and guidelines for contributing to Scaffold-ETH 2.
+脚手架原始代码及本仓库相关代码的许可证见 [LICENCE](LICENCE)。
